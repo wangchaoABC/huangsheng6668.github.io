@@ -13,7 +13,7 @@ timezone: ''
 
 # URL
 ## If your site is put in a subdirectory, set url as 'http://yoursite.com/child' and root as '/child/'
-url: https://118.89.125.59/
+url: http://www.juziss.cn/
 root: /
 permalink: :year/:month/:day/:title/
 permalink_defaults:
@@ -102,7 +102,7 @@ theme: next
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   type: git
-  repo: ubuntu@www.juziss.cn:/var/repo/juziss.git
+  repo: ssh://ubuntu@www.juziss.cn:2222/var/repo/juziss.git
   branch: master
 
 

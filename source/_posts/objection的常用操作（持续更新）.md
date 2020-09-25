@@ -23,3 +23,6 @@ categories: Android逆向
 
 6. 通过watch命令来Hook某个类的所有函数(这些dump-xx都可以不要，但是加上的话可以加)
 	- andriod hooking list watch 包名.类名 --dump-args --dump-backtrace --dump-return
+
+7. 通过watch命令可以Hook某个类的方法
+	- android hooking watch 包名.类名.函数名

@@ -288,3 +288,6 @@ git describe:描述最近的标签
 ![picture 55](http://img.juziss.cn/6e749b99e6ebafc16cdfb2a50158f561f60412407664aca69fef1bddddf8f117.png)  
 
 ![picture 56](http://img.juziss.cn/b85522f8bf51ec1328e5242f579274fea90e0195da27bfc467a9a190cfe9340e.png)  
+
+最后上一张图：
+![picture 1](http://img.juziss.cn/fb9efd228cf6c6c41ad8588a2a34d837483c4f4d6b335038901989c08440388f.png)  

@@ -115,3 +115,156 @@ InMemoryDexClassLoader源码:
 ##### frida与xpose对ClassLoader的加载
 xpose: 需要加载ClassLoader才能进行操作
 frida: 通过反射找到app所在的ClassLoader, 自动处理ClassLoader
+
+##### 动态加载dex
+之前我们有提到DexClassLoader 可以加载任意目录的dex、zip、jar、apk文件，所以我们需要得到一个DexClassLoader实例，先看看源码部分。
+![picture 11](http://img.juziss.cn/a597581e02451f29eb5c0136d20cd999281c165c80e3c06177419abcdc809f26.png)  
+第一个参数dexPath,即要加载的那4个类型的文件路径，第二个
+
+1. 我们先创建一个Android项目，然后我们再创建一个类，类中创建一个方法，用来输出已经被调用到。
+
+2. 编译整个项目成apk，然后解压apk，找到当前classxx.dex，把其导入到手机的/sdcard/目录
+
+3. 接着，我们创建一个用于Load刚才我们导入进sdcard的项目，记得添加读写sd卡的权限.
+![picture 1](http://img.juziss.cn/25119105b2a77f7811e8d7484daa360993d4b9f86e6d04e639db6a97a6d8b873.jpg)  
+
+4. 编写程序
+```java
+package com.example.loadsdcardcode;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import android.app.Application;
+import android.content.Context;
+import android.os.Bundle;
+
+import java.io.File;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
+import dalvik.system.DexClassLoader;
+
+public class MainActivity extends AppCompatActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        Context context = this.getApplicationContext();
+        testDexClassLoader(context, "/sdcard/3.dex");
+    }
+
+    /**
+     *
+     * @param context 获取当前app的私有目录
+     * @param dexPath dex、zip、apk、jar这四种中的一种文件格式的路径
+     */
+    public void testDexClassLoader(Context context, String dexPath){
+        // 在当前的私有文件下新建一个私有目录,用于存放其dex
+        File optfile = context.getDir("opt_dex", 0);
+        File libFile = context.getDir("lib_dex", 0);
+        DexClassLoader dexClassLoader = new DexClassLoader(dexPath,
+                optfile.getAbsolutePath(),
+                libFile.getAbsolutePath(),
+                MainActivity.class.getClassLoader());
+        try {
+            // 读取dex中的class
+            Class clazz = dexClassLoader.loadClass("com.example.beloadedproject.TestClass");
+            try {
+                // 反射出需要的method
+                Method method = clazz.getDeclaredMethod("functionBeLoaded");
+                // 反射出我们要load的class
+                Object obj = clazz.newInstance();
+                // 调用方法
+                method.invoke(obj);
+            } catch (NoSuchMethodException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            } catch (InstantiationException e) {
+                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            }
+
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+看看结果：
+![picture 1](http://img.juziss.cn/02bd1331331a16fed90a1cbb54083152375b4224366b70f5744331242a980448.png)  
+
+
+DexClassLoader方法参数:
+dexPath:目标所在的apk或者jar文件的路径，装载器将从路径中寻找指定的目标类。
+dexOutputDir:由于dex文件在APK或者jar文件中，所以在装载前面前先要从里面解压出dex文件，这个路径就是dex文件存放的路径，在android系统中，一个应用程序对应一个linux用户id ,应用程序只对自己的数据目录有写的权限，所以我们存放在这个路径中。
+libPath:目标类中使用的C/C++库。
+最后一个参数是该装载器的父装载器，一般为当前执行类的装载器。
+
+##### APP运行的过程
+![picture 2](http://img.juziss.cn/cc369254dbb9c7f913a109b608583dbb979e32b9fe79b03b4729eb508e7f2c95.png)  
+ActivityThread.main()是进入APP世界的大门，只有经过这个方法之后才会进入到加壳app的自己的代码当中。
+接下来我们开始讲ActivityThread:
+
+##### ActivityThread
+ActivityThread是一个单例模式的类，sActivityThread用于保留这个唯一的实例。
+我们要想获取到当前的ActivityThread，需要调用其静态函数`currentActivityThread`
+![picture 3](http://img.juziss.cn/76c59cbeb09ae923b8660b0d266301efdb0a1f9bf9dbb75141bff33d256d691b.png)  
+
+通过该函数，我们将获取这个全局、单例的实例，通过该实例我们可以获取一些比较重要的变量。
+
+LoadedApk:
+![picture 6](http://img.juziss.cn/5ed455d389703908e896b02ec1689ff4d8bbde4a51c8c0f3c5888da5e9ae55bf.png)  
+
+
+在ActivityThread的内部这个部分有LoadedApk这个类的变量，其中这个类中有一个变量叫做`mClassLoader`，就是我们加载APP用的ClassLoader，即PathClassLoader.
+
+我们通过反射获取一个ActivityThread这个仅有的实例，接下来，再通过反射获取mPackages这个ArrayMap,接下来就可以通过当前APP的包名获取到它的LoadedApk,最后就可以通过这个LoadedApk获取到其中的一个mClassLoader。
+![picture 7](http://img.juziss.cn/91efc5b43b9f48d9f9542bd19e97798385d697eacbe4df35c99f43cd28cac293.png)  
+
+这个实际上就是PathClassLoader,就是接下来APP用于加载四大组件这些类的ClassLoader。
+
+###### 而什么时候才会进入到app的代码当中？（何时进行dex解密）
+在`handleBindApplication`当中，最先进入到app自身代码当中。
+在hangbingle老师的这片文章[链接](https://bbs.pediy.com/thread-252630.htm, 'title')就有提到，此处上他的代码截取
+```java
+private void handleBindApplication(AppBindData data) {
+    //step 1: 创建LoadedApk对象
+    data.info = getPackageInfoNoCheck(data.appInfo, data.compatInfo);
+    ...
+    //step 2: 创建ContextImpl对象;
+    final ContextImpl appContext = ContextImpl.createAppContext(this, data.info);
+ 
+    //step 3: 创建Instrumentation
+    mInstrumentation = new Instrumentation();
+ 
+    //step 4: 创建Application对象;在makeApplication函数中调用了newApplication，在该函数中又调用了app.attach(context)，在attach函数中调用了Application.attachBaseContext函数
+    Application app = data.info.makeApplication(data.restrictedBackupMode, null);
+    mInitialApplication = app;
+ 
+    //step 5: 安装providers
+    List<ProviderInfo> providers = data.providers;
+    installContentProviders(app, providers);
+ 
+    //step 6: 执行Application.Create回调
+    mInstrumentation.callApplicationOnCreate(app);
+```
+![picture 9](http://img.juziss.cn/538a0ba26e99f9d251177ca46b04e10fba73582ef02dd3c86ad4e41776ad3730.png)  
+
+接下来我们看看那个newApplication做了什么。
+![picture 10](http://img.juziss.cn/5f69e18eebe7a92cab70715dfd7e7420084fde248f0c3cae497c1e120efa808f.png)  
+
+跟到这里发现app.attach,我们接着跟到attach里。
+![picture 11](http://img.juziss.cn/d65d81ddbe0bd5f10ab3690320a142fc2069a2b0248edd9200d57cbe386dda6b.png)  
+
+这里实际上调用了`attachBaseContext`这个函数。
+一个正常的APP的哪一部分最先被执行？在AndroidManifest.xml当中，所声明的ApplicationBaseContext和onCreate函数是最先获取到执行权的。
+在这个过程当中，涉及到两个ClassLoader,**BootClassLoader用来加载系统核心库，而PathClassLoader用于加载APP自身dex，其中包含有app所声明的Application,如果APP没有加壳，自然而然拥有APP这些类信息；如果加壳了呢？此时PathClassLoader加载的，只有壳的代码！**而且，当前呢，也还没有加载真正的代码也就是壳解密后释放的代码。**接下来就进入到Application的attachBaseContext这个函数执行，再往下就是onCreate函数进行执行。对于壳程序来说需要找到一个比较早的时机进行加密dex交付。自然而然就会选择这两个函数做文章。**
+![picture 12](http://img.juziss.cn/9939bff51cfb9ddf3e37861d5852011490fe24a79ffe95c36581cc66be023b4e.png)  
+
+###### 加壳应用的运行流程
+![picture 13](http://img.juziss.cn/8149fa527dff3315f60320b038c2df1bbf0eeb36f8854d9e1083fca8fe52269c.png)  
+
+###### 如何解决动态加载中加壳dex的类的生命周期
